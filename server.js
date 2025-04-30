@@ -6,6 +6,10 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Set the interval to 10 minutes
+const EMAIL_INTERVAL_MINUTES = 10;
+const EMAIL_INTERVAL_MS = EMAIL_INTERVAL_MINUTES * 60 * 1000; // 10 minutes in milliseconds
+
 // Middleware
 app.use(express.json());
 app.use(cors());
@@ -24,7 +28,7 @@ const activeJobs = new Map();
 
 // Alternative implementation using setTimeout instead of setInterval
 function scheduleNextEmail(recipient, mailOptions) {
-  console.log(`Scheduling next email to ${recipient} in 3 minutes...`);
+  console.log(`Scheduling next email to ${recipient} in ${EMAIL_INTERVAL_MINUTES} minutes...`);
   
   // Using setTimeout for more precise control
   const timeoutId = setTimeout(async () => {
@@ -47,7 +51,7 @@ function scheduleNextEmail(recipient, mailOptions) {
         scheduleNextEmail(recipient, mailOptions);
       }
     }
-  }, 3 * 60 * 1000); // Hard-coded 3 minutes (180,000 ms)
+  }, EMAIL_INTERVAL_MS); // Now using 10 minutes (600,000 ms)
   
   // Update the job with the new timeout ID
   const jobInfo = activeJobs.get(recipient);
@@ -59,7 +63,7 @@ function scheduleNextEmail(recipient, mailOptions) {
     activeJobs.set(recipient, {
       ...jobInfo,
       timeoutId,
-      nextScheduledAt: new Date(Date.now() + 3 * 60 * 1000)
+      nextScheduledAt: new Date(Date.now() + EMAIL_INTERVAL_MS)
     });
   }
 }
@@ -88,7 +92,7 @@ app.post('/api/start-email', async (req, res) => {
       html: content
     };
     
-    console.log(`Starting new email schedule for ${recipient} - every 3 minutes`);
+    console.log(`Starting new email schedule for ${recipient} - every ${EMAIL_INTERVAL_MINUTES} minutes`);
     
     // Send first email immediately
     await transporter.sendMail(mailOptions);
@@ -98,7 +102,7 @@ app.post('/api/start-email', async (req, res) => {
     activeJobs.set(recipient, {
       subject,
       startedAt: new Date(),
-      intervalMinutes: 3,
+      intervalMinutes: EMAIL_INTERVAL_MINUTES,
       lastSentAt: new Date()
     });
     
@@ -107,7 +111,7 @@ app.post('/api/start-email', async (req, res) => {
     
     res.status(200).json({
       success: true,
-      message: `Email schedule started. Sending every 3 minutes to ${recipient}`
+      message: `Email schedule started. Sending every ${EMAIL_INTERVAL_MINUTES} minutes to ${recipient}`
     });
   } catch (error) {
     console.error('Error starting email schedule:', error);
@@ -137,7 +141,7 @@ app.post('/api/stop-email', (req, res) => {
 app.get('/api/active-jobs', (req, res) => {
   const jobs = Array.from(activeJobs.entries()).map(([email, details]) => ({
     email,
-    intervalMinutes: details.intervalMinutes || 3,
+    intervalMinutes: details.intervalMinutes || EMAIL_INTERVAL_MINUTES,
     subject: details.subject,
     startedAt: details.startedAt,
     lastSentAt: details.lastSentAt,
@@ -163,5 +167,5 @@ app.get('/api/status', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Email interval set to 3 minutes (180000 ms)`);
+  console.log(`Email interval set to ${EMAIL_INTERVAL_MINUTES} minutes (${EMAIL_INTERVAL_MS} ms)`);
 });
