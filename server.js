@@ -12,20 +12,62 @@ app.use(cors());
 
 // Configure nodemailer transporter
 const transporter = nodemailer.createTransport({
-  service: 'gmail', // Or any other email service
+  service: 'gmail',
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS
   }
 });
 
-// Store active email jobs with their interval details
+// Store active email jobs
 const activeJobs = new Map();
 
-// Start email sending at intervals
+// Alternative implementation using setTimeout instead of setInterval
+function scheduleNextEmail(recipient, mailOptions) {
+  console.log(`Scheduling next email to ${recipient} in 3 minutes...`);
+  
+  // Using setTimeout for more precise control
+  const timeoutId = setTimeout(async () => {
+    try {
+      const startTime = Date.now();
+      await transporter.sendMail(mailOptions);
+      const endTime = Date.now();
+      
+      console.log(`Email sent to ${recipient} at ${new Date().toISOString()}`);
+      console.log(`Email sending took ${endTime - startTime}ms`);
+      
+      // Schedule the next one only after this one completes
+      if (activeJobs.has(recipient)) {
+        scheduleNextEmail(recipient, mailOptions);
+      }
+    } catch (error) {
+      console.error('Error sending scheduled email:', error);
+      // Try again in case of error
+      if (activeJobs.has(recipient)) {
+        scheduleNextEmail(recipient, mailOptions);
+      }
+    }
+  }, 3 * 60 * 1000); // Hard-coded 3 minutes (180,000 ms)
+  
+  // Update the job with the new timeout ID
+  const jobInfo = activeJobs.get(recipient);
+  if (jobInfo) {
+    // Clear any existing timeout
+    if (jobInfo.timeoutId) clearTimeout(jobInfo.timeoutId);
+    
+    // Update with new timeout
+    activeJobs.set(recipient, {
+      ...jobInfo,
+      timeoutId,
+      nextScheduledAt: new Date(Date.now() + 3 * 60 * 1000)
+    });
+  }
+}
+
+// Start email sending using setTimeout chain
 app.post('/api/start-email', async (req, res) => {
   try {
-    const { recipient, subject, content, intervalMinutes = 3 } = req.body;
+    const { recipient, subject, content } = req.body;
     
     // Validate inputs
     if (!recipient || !subject || !content) {
@@ -34,7 +76,8 @@ app.post('/api/start-email', async (req, res) => {
     
     // Stop any existing job for this recipient
     if (activeJobs.has(recipient)) {
-      clearInterval(activeJobs.get(recipient).intervalId);
+      const existingJob = activeJobs.get(recipient);
+      if (existingJob.timeoutId) clearTimeout(existingJob.timeoutId);
     }
     
     // Define email options
@@ -45,32 +88,26 @@ app.post('/api/start-email', async (req, res) => {
       html: content
     };
     
+    console.log(`Starting new email schedule for ${recipient} - every 3 minutes`);
+    
     // Send first email immediately
     await transporter.sendMail(mailOptions);
     console.log(`Initial email sent to ${recipient} at ${new Date().toISOString()}`);
     
-    // Set up interval (convert minutes to milliseconds)
-    const intervalMs = intervalMinutes * 60 * 1000;
-    const intervalId = setInterval(async () => {
-      try {
-        await transporter.sendMail(mailOptions);
-        console.log(`Email sent to ${recipient} at ${new Date().toISOString()}`);
-      } catch (error) {
-        console.error('Error sending scheduled email:', error);
-      }
-    }, intervalMs);
-    
-    // Store the interval ID and details
+    // Store job info
     activeJobs.set(recipient, {
-      intervalId,
-      intervalMinutes,
       subject,
-      startedAt: new Date()
+      startedAt: new Date(),
+      intervalMinutes: 3,
+      lastSentAt: new Date()
     });
+    
+    // Schedule the next email
+    scheduleNextEmail(recipient, mailOptions);
     
     res.status(200).json({
       success: true,
-      message: `Email schedule started. Sending every ${intervalMinutes} minute(s) to ${recipient}`
+      message: `Email schedule started. Sending every 3 minutes to ${recipient}`
     });
   } catch (error) {
     console.error('Error starting email schedule:', error);
@@ -87,7 +124,8 @@ app.post('/api/stop-email', (req, res) => {
   }
   
   if (activeJobs.has(recipient)) {
-    clearInterval(activeJobs.get(recipient).intervalId);
+    const job = activeJobs.get(recipient);
+    if (job.timeoutId) clearTimeout(job.timeoutId);
     activeJobs.delete(recipient);
     res.status(200).json({ success: true, message: `Email schedule to ${recipient} stopped` });
   } else {
@@ -99,9 +137,11 @@ app.post('/api/stop-email', (req, res) => {
 app.get('/api/active-jobs', (req, res) => {
   const jobs = Array.from(activeJobs.entries()).map(([email, details]) => ({
     email,
-    intervalMinutes: details.intervalMinutes,
+    intervalMinutes: details.intervalMinutes || 3,
     subject: details.subject,
-    startedAt: details.startedAt
+    startedAt: details.startedAt,
+    lastSentAt: details.lastSentAt,
+    nextScheduledAt: details.nextScheduledAt
   }));
   
   res.status(200).json({
@@ -123,4 +163,5 @@ app.get('/api/status', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Email interval set to 3 minutes (180000 ms)`);
 });
