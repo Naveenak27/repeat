@@ -26,7 +26,7 @@ const activeJobs = new Map();
 // Start email sending at intervals
 app.post('/api/start-email', async (req, res) => {
   try {
-    const { recipient, subject, content, intervalMinutes = 1 } = req.body;
+    const { recipient, subject, content, intervalMinutes = 3 } = req.body;
     
     // Validate inputs
     if (!recipient || !subject || !content) {
