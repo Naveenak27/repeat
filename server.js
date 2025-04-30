@@ -98,6 +98,15 @@ app.get('/api/active-jobs', (req, res) => {
     count: jobs.length 
   });
 });
+// Status endpoint for uptime robot
+app.get('/api/status', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    activeJobs: activeJobs.size
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
