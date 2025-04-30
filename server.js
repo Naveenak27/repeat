@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const nodemailer = require('nodemailer');
 const cors = require('cors');
@@ -20,7 +19,7 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// Store active email jobs
+// Store active email jobs with their interval details
 const activeJobs = new Map();
 
 // Start email sending at intervals
@@ -35,7 +34,7 @@ app.post('/api/start-email', async (req, res) => {
     
     // Stop any existing job for this recipient
     if (activeJobs.has(recipient)) {
-      clearInterval(activeJobs.get(recipient));
+      clearInterval(activeJobs.get(recipient).intervalId);
     }
     
     // Define email options
@@ -48,8 +47,10 @@ app.post('/api/start-email', async (req, res) => {
     
     // Send first email immediately
     await transporter.sendMail(mailOptions);
+    console.log(`Initial email sent to ${recipient} at ${new Date().toISOString()}`);
     
     // Set up interval (convert minutes to milliseconds)
+    const intervalMs = intervalMinutes * 60 * 1000;
     const intervalId = setInterval(async () => {
       try {
         await transporter.sendMail(mailOptions);
@@ -57,14 +58,19 @@ app.post('/api/start-email', async (req, res) => {
       } catch (error) {
         console.error('Error sending scheduled email:', error);
       }
-    }, intervalMinutes * 60 * 1000);
+    }, intervalMs);
     
-    // Store the interval ID
-    activeJobs.set(recipient, intervalId);
+    // Store the interval ID and details
+    activeJobs.set(recipient, {
+      intervalId,
+      intervalMinutes,
+      subject,
+      startedAt: new Date()
+    });
     
-    res.status(200).json({ 
-      success: true, 
-      message: `Email schedule started. Sending every ${intervalMinutes} minute(s) to ${recipient}` 
+    res.status(200).json({
+      success: true,
+      message: `Email schedule started. Sending every ${intervalMinutes} minute(s) to ${recipient}`
     });
   } catch (error) {
     console.error('Error starting email schedule:', error);
@@ -81,7 +87,7 @@ app.post('/api/stop-email', (req, res) => {
   }
   
   if (activeJobs.has(recipient)) {
-    clearInterval(activeJobs.get(recipient));
+    clearInterval(activeJobs.get(recipient).intervalId);
     activeJobs.delete(recipient);
     res.status(200).json({ success: true, message: `Email schedule to ${recipient} stopped` });
   } else {
@@ -91,13 +97,20 @@ app.post('/api/stop-email', (req, res) => {
 
 // Get status of all active jobs
 app.get('/api/active-jobs', (req, res) => {
-  const jobs = Array.from(activeJobs.keys());
-  res.status(200).json({ 
-    success: true, 
-    activeJobs: jobs, 
-    count: jobs.length 
+  const jobs = Array.from(activeJobs.entries()).map(([email, details]) => ({
+    email,
+    intervalMinutes: details.intervalMinutes,
+    subject: details.subject,
+    startedAt: details.startedAt
+  }));
+  
+  res.status(200).json({
+    success: true,
+    activeJobs: jobs,
+    count: jobs.length
   });
 });
+
 // Status endpoint for uptime robot
 app.get('/api/status', (req, res) => {
   res.status(200).json({
